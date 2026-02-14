@@ -1,248 +1,406 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const SUPABASE_URL = "https://dmjsptyvcyiquokecbyx.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRtanNwdHl2Y3lpcXVva2VjYnl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjY1MTQsImV4cCI6MjA4NjIwMjUxNH0.deqymrsJrLtfCdch15iL8ruVBEn7Jztx9a-sZeuc2Qg";
+// ═══════════════════════════════════════════════════════════════
+// CERTAPEPTIDES MISSION CONTROL v2.0 — Game-Style Command Center
+// ═══════════════════════════════════════════════════════════════
 
-const AGENTS: Record<string, { name: string; emoji: string; role: string; color: string; tone: string }> = {
-  helix:    { name: "Helix",    emoji: "🧠", role: "Operations Coordinator", color: "#6366f1", tone: "direct" },
-  scribe:   { name: "Scribe",   emoji: "✍️", role: "Content Creator & Social Media", color: "#f59e0b", tone: "engaging" },
-  sentinel: { name: "Sentinel", emoji: "👁️", role: "Market Observer & Analyst", color: "#10b981", tone: "analytical" },
-  atlas:    { name: "Atlas",    emoji: "🏪", role: "Ecommerce Store Manager", color: "#ef4444", tone: "operational" },
-  catalyst: { name: "Catalyst", emoji: "📊", role: "Growth & SEO Specialist", color: "#8b5cf6", tone: "energetic" },
-  nova:     { name: "Nova",     emoji: "🔬", role: "Peptide Research & Intelligence", color: "#06b6d4", tone: "academic" },
+const SB_URL = "https://dmjsptyvcyiquokecbyx.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRtanNwdHl2Y3lpcXVva2VjYnl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MjY1MTQsImV4cCI6MjA4NjIwMjUxNH0.deqymrsJrLtfCdch15iL8ruVBEn7Jztx9a-sZeuc2Qg";
+
+type Agent = {
+  key: string; name: string; emoji: string; role: string; color: string;
+  tone: string; avatar: string; status: "online"|"busy"|"idle"|"offline";
+  xp: number; level: number; missions: number;
 };
 
-const ROUNDTABLE_FORMATS = [
-  { id: "standup", label: "Daily Standup", desc: "Quick sync on priorities" },
-  { id: "strategy_session", label: "Strategy Session", desc: "Deep dive on direction" },
-  { id: "brainstorm", label: "Brainstorm", desc: "Creative ideation" },
-  { id: "debate", label: "Debate", desc: "Argue opposing views" },
-  { id: "watercooler", label: "Watercooler", desc: "Casual chat" },
-  { id: "market_brief", label: "Market Brief", desc: "Market analysis review" },
+const AGENTS: Agent[] = [
+  { key:"snapsnap", name:"SnapSnap", emoji:"👑", role:"Chief Executive Agent", color:"#fbbf24", tone:"strategic", avatar:"👑", status:"online", xp:9500, level:10, missions:142 },
+  { key:"helix",    name:"Helix",    emoji:"🧠", role:"Operations Coordinator", color:"#6366f1", tone:"direct", avatar:"🧠", status:"online", xp:7200, level:8, missions:98 },
+  { key:"scribe",   name:"Scribe",   emoji:"✍️", role:"Content & Social Media", color:"#f59e0b", tone:"engaging", avatar:"✍️", status:"busy", xp:6100, level:7, missions:76 },
+  { key:"sentinel", name:"Sentinel", emoji:"👁️", role:"Market Observer", color:"#10b981", tone:"analytical", avatar:"👁️", status:"online", xp:5800, level:7, missions:64 },
+  { key:"atlas",    name:"Atlas",    emoji:"🏪", role:"Store Manager", color:"#ef4444", tone:"operational", avatar:"🏪", status:"idle", xp:4200, level:6, missions:53 },
+  { key:"catalyst", name:"Catalyst", emoji:"📊", role:"Growth & SEO", color:"#8b5cf6", tone:"energetic", avatar:"📊", status:"online", xp:5400, level:6, missions:61 },
+  { key:"nova",     name:"Nova",     emoji:"🔬", role:"Research Intelligence", color:"#06b6d4", tone:"academic", avatar:"🔬", status:"idle", xp:4800, level:6, missions:47 },
 ];
 
-async function supabaseFetch(table: string, query = "") {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
-    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+const AGENT_MAP: Record<string, Agent> = {};
+AGENTS.forEach(a => AGENT_MAP[a.key] = a);
+
+// ── Supabase helpers ──
+async function sbFetch(table: string, q = "") {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}?${q}`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
   });
-  return res.json();
+  return r.json();
 }
 
-async function supabaseInsert(table: string, data: any) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+async function sbInsert(table: string, data: any) {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}`, {
     method: "POST",
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-    },
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" },
     body: JSON.stringify(data),
   });
-  return res.json();
+  return r.json();
 }
 
-async function callAgent(agentKey: string, userMessage: string, conversationHistory: any[] = []) {
-  const agent = AGENTS[agentKey];
-  const systemPrompt = `You are ${agent.name} ${agent.emoji}, the ${agent.role} for CertaPeptides, a European research peptide ecommerce company.
-Your tone is ${agent.tone}. You have deep expertise in your domain.
-CertaPeptides sells 28+ research peptides for scientific use only (not for human consumption).
-Stay in character. Be concise (2-4 sentences max unless asked for detail). Show personality.
-${agentKey === "helix" ? "You coordinate the team and delegate tasks. You're the leader." : ""}
-${agentKey === "scribe" ? "You love crafting engaging content. You think in hooks and narratives." : ""}
-${agentKey === "sentinel" ? "You analyze data and spot trends. You're cautious and thorough." : ""}
-${agentKey === "atlas" ? "You manage the store operations. You care about conversion rates and UX." : ""}
-${agentKey === "catalyst" ? "You're obsessed with growth metrics and SEO rankings." : ""}
-${agentKey === "nova" ? "You research peptides deeply. You cite studies and speak with academic precision." : ""}`;
-
-  const messages = [
-    ...conversationHistory.map((m: any) => ({ role: m.role, content: m.content })),
-    { role: "user", content: userMessage },
-  ];
-
-  const response = await fetch("/api/agent", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ system: systemPrompt, messages, max_tokens: 600 }),
+// ── LLM call ──
+async function callAgent(agentKey: string, userMessage: string, history: any[] = []) {
+  const a = AGENT_MAP[agentKey] || AGENT_MAP.helix;
+  const sys = `You are ${a.name} ${a.emoji}, the ${a.role} for CertaPeptides, a European research peptide company.
+Tone: ${a.tone}. Be concise (2-4 sentences). Show personality.
+${agentKey === "snapsnap" ? "You are the CEO agent. You orchestrate all other agents and make strategic decisions." : ""}`;
+  const res = await fetch("/api/agent", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ system: sys, messages: [...history.map(m => ({ role: m.role, content: m.content })), { role: "user", content: userMessage }], max_tokens: 600 }),
   });
-  const data = await response.json();
+  const data = await res.json();
   if (data.error) throw new Error(data.error);
   return data.content?.[0]?.text || "...";
 }
 
-async function runRoundtable(
-  format: string, topic: string, participants: string[],
-  onTurn: (turn: any, current: number, total: number) => void
-) {
-  const transcript: any[] = [];
-  const maxTurns = participants.length * 2;
+// ══════════════════════════════════════
+// COMPONENTS
+// ══════════════════════════════════════
 
-  for (let i = 0; i < maxTurns; i++) {
-    const agentKey = participants[i % participants.length];
-    const agent = AGENTS[agentKey];
-
-    const context = transcript.length > 0
-      ? `\nConversation so far:\n${transcript.map((t) => `${t.name}: ${t.text}`).join("\n")}`
-      : "";
-
-    const systemPrompt = `You are ${agent.name} ${agent.emoji}, the ${agent.role} for CertaPeptides.
-You're in a ${format.replace("_", " ")} with colleagues. Tone: ${agent.tone}.
-Be concise (2-3 sentences). Stay in character. React to what others said.
-${i === maxTurns - 1 ? "This is the final turn — wrap up with a key takeaway." : ""}`;
-
-    const userPrompt = `Topic: ${topic}${context}\n\nIt's your turn to speak.`;
-
-    const response = await fetch("/api/agent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-        max_tokens: 200,
-      }),
-    });
-    const data = await response.json();
-    const text = data.content?.[0]?.text || "...";
-
-    const turn = { agentKey, name: agent.name, emoji: agent.emoji, color: agent.color, text, turn: i + 1 };
-    transcript.push(turn);
-    onTurn(turn, i + 1, maxTurns);
-
-    await new Promise((r) => setTimeout(r, 300));
-  }
-  return transcript;
+function GlowOrb({ color, size = 10, pulse = false }: { color: string; size?: number; pulse?: boolean }) {
+  return (
+    <span style={{
+      display: "inline-block", width: size, height: size, borderRadius: "50%",
+      background: color, boxShadow: `0 0 ${size}px ${color}80`,
+      animation: pulse ? "pulse 2s infinite" : undefined,
+    }} />
+  );
 }
 
-// --- Components ---
-
-function AgentBadge({ agentKey, selected, onClick }: { agentKey: string; selected: boolean; onClick: (k: string) => void }) {
-  const a = AGENTS[agentKey];
+function StatCard({ label, value, icon, color, sub }: { label: string; value: string|number; icon: string; color: string; sub?: string }) {
   return (
-    <button
-      onClick={() => onClick(agentKey)}
-      style={{
-        display: "flex", alignItems: "center", gap: 8, padding: "8px 14px",
-        borderRadius: 10, border: `2px solid ${selected ? a.color : "#2a2a35"}`,
-        background: selected ? `${a.color}18` : "#16161e",
-        cursor: "pointer", transition: "all 0.2s",
-        transform: selected ? "scale(1.04)" : "scale(1)",
-      }}
-    >
-      <span style={{ fontSize: 22 }}>{a.emoji}</span>
-      <div style={{ textAlign: "left" }}>
-        <div style={{ color: selected ? a.color : "#e0e0e8", fontWeight: 600, fontSize: 13 }}>{a.name}</div>
-        <div style={{ color: "#777", fontSize: 10 }}>{a.role}</div>
+    <div style={{
+      padding: "14px 16px", borderRadius: 14,
+      background: "rgba(15,15,25,0.8)", backdropFilter: "blur(12px)",
+      border: `1px solid ${color}25`, position: "relative", overflow: "hidden",
+    }}>
+      <div style={{ position: "absolute", top: -20, right: -20, fontSize: 60, opacity: 0.06 }}>{icon}</div>
+      <div style={{ color: "#888", fontSize: 10, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>{label}</div>
+      <div style={{ color, fontSize: 24, fontWeight: 800, lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ color: "#555", fontSize: 10, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function AgentHexCard({ agent, selected, onClick }: { agent: Agent; selected: boolean; onClick: () => void }) {
+  const statusColors: Record<string, string> = { online: "#22c55e", busy: "#f59e0b", idle: "#6366f1", offline: "#555" };
+  return (
+    <button onClick={onClick} style={{
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+      padding: "14px 10px", borderRadius: 16, border: `2px solid ${selected ? agent.color : "transparent"}`,
+      background: selected ? `${agent.color}12` : "rgba(15,15,25,0.6)",
+      backdropFilter: "blur(10px)", cursor: "pointer", transition: "all 0.3s",
+      transform: selected ? "scale(1.05)" : "scale(1)", minWidth: 90,
+      boxShadow: selected ? `0 0 20px ${agent.color}20` : "none",
+    }}>
+      <div style={{ position: "relative" }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
+          background: `linear-gradient(135deg, ${agent.color}30, ${agent.color}10)`,
+          border: `2px solid ${agent.color}40`, fontSize: 24,
+        }}>{agent.emoji}</div>
+        <div style={{
+          position: "absolute", bottom: -2, right: -2, width: 14, height: 14, borderRadius: "50%",
+          background: statusColors[agent.status], border: "2px solid #0a0a10",
+          boxShadow: `0 0 6px ${statusColors[agent.status]}`,
+        }} />
+      </div>
+      <div style={{ color: selected ? agent.color : "#c8c8d8", fontWeight: 700, fontSize: 11, textAlign: "center" }}>{agent.name}</div>
+      <div style={{ color: "#555", fontSize: 9, textAlign: "center" }}>{agent.role}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+        <span style={{ color: "#fbbf24", fontSize: 9 }}>★</span>
+        <span style={{ color: "#888", fontSize: 9 }}>Lv.{agent.level}</span>
       </div>
     </button>
   );
 }
 
-function ChatPanel({ agentKey }: { agentKey: string }) {
-  const [messages, setMessages] = useState<any[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const agent = AGENTS[agentKey];
+// ── CEO Command Desk ──
+function CEOCommandDesk({ onChat }: { onChat: (agent: string) => void }) {
+  const [commanding, setCommanding] = useState(false);
+  const [command, setCommand] = useState("");
+  const [response, setResponse] = useState("");
 
-  useEffect(() => {
-    setMessages([{ role: "assistant", content: getGreeting(agentKey) }]);
-  }, [agentKey]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const send = async () => {
-    if (!input.trim() || loading) return;
-    const userMsg = input.trim();
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
-    setLoading(true);
+  const executeCommand = async () => {
+    if (!command.trim()) return;
+    setCommanding(true);
     try {
-      const history = messages.map((m) => ({ role: m.role, content: m.content }));
-      const reply = await callAgent(agentKey, userMsg, history);
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-
-      await supabaseInsert("ops_agent_events", {
-        event_type: "step_completed",
-        agent_name: agentKey,
-        title: `Chat: ${userMsg.slice(0, 60)}`,
-        description: reply.slice(0, 300),
-        impact_score: 0.3,
-        metadata: { source: "direct_chat" },
-      }).catch(() => {});
-    } catch (e: any) {
-      setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ Error: ${e.message}` }]);
-    }
-    setLoading(false);
+      const r = await callAgent("snapsnap", `CEO DIRECTIVE: ${command}`, []);
+      setResponse(r);
+    } catch (e: any) { setResponse(`Error: ${e.message}`); }
+    setCommanding(false);
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0d0d14", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ padding: "12px 16px", background: `${agent.color}15`, borderBottom: `1px solid ${agent.color}30`, display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontSize: 26 }}>{agent.emoji}</span>
+    <div style={{
+      padding: 20, borderRadius: 18, position: "relative", overflow: "hidden",
+      background: "linear-gradient(135deg, rgba(251,191,36,0.08), rgba(15,15,25,0.9))",
+      border: "1px solid rgba(251,191,36,0.2)",
+    }}>
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #fbbf24, transparent)" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <div style={{
+          width: 50, height: 50, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
+          background: "linear-gradient(135deg, #fbbf24, #f59e0b)", fontSize: 26,
+        }}>👑</div>
         <div>
-          <div style={{ color: agent.color, fontWeight: 700, fontSize: 15 }}>{agent.name}</div>
-          <div style={{ color: "#888", fontSize: 11 }}>{agent.role}</div>
+          <div style={{ color: "#fbbf24", fontWeight: 800, fontSize: 16 }}>CEO Command Desk</div>
+          <div style={{ color: "#888", fontSize: 11 }}>SnapSnap v3.1 — Beast Mode + Opus Brain</div>
         </div>
-        <div style={{ marginLeft: "auto", width: 8, height: 8, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
+        <div style={{ marginLeft: "auto" }}>
+          <GlowOrb color="#22c55e" size={10} pulse />
+          <span style={{ color: "#22c55e", fontSize: 10, marginLeft: 6 }}>ACTIVE</span>
+        </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{
-            alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-            maxWidth: "85%",
-            padding: "10px 14px",
-            borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-            background: m.role === "user" ? "#2563eb" : "#1e1e2a",
-            color: "#e8e8f0",
-            fontSize: 13,
-            lineHeight: 1.5,
-            whiteSpace: "pre-wrap",
-          }}>
-            {m.content}
-          </div>
-        ))}
-        {loading && (
-          <div style={{ alignSelf: "flex-start", padding: "10px 14px", borderRadius: 14, background: "#1e1e2a", color: "#888", fontSize: 13 }}>
-            <span style={{ animation: "pulse 1.5s infinite" }}>{agent.emoji} thinking...</span>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      <div style={{ padding: 12, borderTop: "1px solid #1e1e2a", display: "flex", gap: 8 }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder={`Talk to ${agent.name}...`}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input value={command} onChange={e => setCommand(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && executeCommand()}
+          placeholder="Issue a CEO directive..."
           style={{
-            flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid #2a2a35",
-            background: "#111118", color: "#e8e8f0", fontSize: 13, outline: "none",
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        />
-        <button
-          onClick={send}
-          disabled={loading || !input.trim()}
-          style={{
-            padding: "10px 18px", borderRadius: 10, border: "none",
-            background: loading ? "#333" : agent.color, color: "#fff",
-            fontWeight: 600, fontSize: 13, cursor: loading ? "wait" : "pointer",
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
-          Send
+            flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid #fbbf2430",
+            background: "rgba(10,10,16,0.8)", color: "#e8e8f0", fontSize: 13, outline: "none",
+            fontFamily: "inherit",
+          }} />
+        <button onClick={executeCommand} disabled={commanding} style={{
+          padding: "10px 20px", borderRadius: 10, border: "none",
+          background: commanding ? "#333" : "linear-gradient(135deg, #fbbf24, #f59e0b)",
+          color: "#000", fontWeight: 800, fontSize: 13, cursor: commanding ? "wait" : "pointer",
+        }}>
+          {commanding ? "⏳" : "⚡ Execute"}
         </button>
+      </div>
+
+      {response && (
+        <div style={{
+          padding: 12, borderRadius: 10, background: "rgba(10,10,16,0.6)",
+          border: "1px solid #fbbf2415", color: "#c8c8d8", fontSize: 12, lineHeight: 1.6,
+          maxHeight: 150, overflowY: "auto", whiteSpace: "pre-wrap",
+        }}>
+          <span style={{ color: "#fbbf24", fontWeight: 700 }}>SnapSnap:</span> {response}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+        {["Morning Briefing", "Check Fleet Status", "Revenue Analysis", "Content Strategy"].map(q => (
+          <button key={q} onClick={() => { setCommand(q); }}
+            style={{
+              padding: "5px 12px", borderRadius: 8, border: "1px solid #fbbf2420",
+              background: "rgba(251,191,36,0.06)", color: "#fbbf24", fontSize: 10, cursor: "pointer",
+              fontFamily: "inherit",
+            }}>
+            {q}
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
-function RoundtablePanel() {
+// ── Live Activity Ticker ──
+function ActivityTicker({ events }: { events: any[] }) {
+  const iconMap: Record<string, string> = {
+    step_completed: "✅", step_failed: "❌", mission_completed: "🏆",
+    mission_failed: "💥", insight_gained: "💡", trigger_fired: "⚡", human_intervention: "👤",
+  };
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", gap: 6, maxHeight: 360, overflowY: "auto",
+      padding: "2px 4px",
+    }}>
+      {events.slice(0, 20).map((e, i) => {
+        const a = AGENT_MAP[e.agent_name];
+        return (
+          <div key={e.id || i} style={{
+            padding: "8px 12px", borderRadius: 10,
+            background: "rgba(15,15,25,0.7)", backdropFilter: "blur(8px)",
+            borderLeft: `3px solid ${a?.color || "#555"}`,
+            animation: i === 0 ? "fadeIn 0.5s ease" : undefined,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12 }}>{iconMap[e.event_type] || "📋"}</span>
+              <span style={{ color: a?.color || "#888", fontWeight: 700, fontSize: 10 }}>{a?.name || e.agent_name}</span>
+              <span style={{ color: "#444", fontSize: 9, marginLeft: "auto" }}>
+                {e.created_at ? new Date(e.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
+              </span>
+            </div>
+            <div style={{ color: "#a0a0b0", fontSize: 11, marginTop: 3, lineHeight: 1.4 }}>{e.title}</div>
+          </div>
+        );
+      })}
+      {events.length === 0 && <div style={{ color: "#444", fontSize: 12, textAlign: "center", padding: 20 }}>Waiting for activity...</div>}
+    </div>
+  );
+}
+
+// ── Mission Kanban Board ──
+function MissionBoard({ missions, onExecute }: { missions: any[]; onExecute: (m: any) => void }) {
+  const cols = [
+    { status: "queued", label: "📋 Queued", color: "#6366f1" },
+    { status: "in_progress", label: "⚡ In Progress", color: "#f59e0b" },
+    { status: "completed", label: "✅ Completed", color: "#22c55e" },
+  ];
+
+  return (
+    <div style={{ display: "flex", gap: 12, height: "100%", overflow: "hidden" }}>
+      {cols.map(col => {
+        const items = missions.filter(m => {
+          if (col.status === "queued") return m.status === "queued" || m.status === "planned";
+          if (col.status === "in_progress") return m.status === "in_progress" || m.status === "executing";
+          return m.status === "completed";
+        });
+        return (
+          <div key={col.status} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{
+              padding: "8px 12px", borderRadius: 10,
+              background: `${col.color}12`, border: `1px solid ${col.color}25`,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span style={{ fontSize: 13 }}>{col.label}</span>
+              <span style={{
+                marginLeft: "auto", background: `${col.color}20`, color: col.color,
+                padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+              }}>{items.length}</span>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+              {items.map(m => {
+                const a = AGENT_MAP[m.assigned_to] || AGENT_MAP.helix;
+                return (
+                  <div key={m.id} style={{
+                    padding: "10px 12px", borderRadius: 10,
+                    background: "rgba(15,15,25,0.7)", backdropFilter: "blur(8px)",
+                    border: `1px solid ${a.color}15`,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <span style={{ fontSize: 14 }}>{a.emoji}</span>
+                      <span style={{ color: "#d0d0e0", fontWeight: 600, fontSize: 12, flex: 1 }}>{m.title}</span>
+                    </div>
+                    {m.description && <div style={{ color: "#666", fontSize: 10, marginBottom: 6 }}>{m.description?.slice(0, 80)}</div>}
+                    {col.status === "queued" && (
+                      <button onClick={() => onExecute(m)} style={{
+                        padding: "4px 12px", borderRadius: 8, border: "none",
+                        background: `${a.color}20`, color: a.color, fontSize: 10, fontWeight: 700,
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}>▶ Execute</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Chat Panel (upgraded) ──
+function ChatPanel({ agentKey, onClose }: { agentKey: string; onClose: () => void }) {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const a = AGENT_MAP[agentKey] || AGENT_MAP.helix;
+
+  useEffect(() => {
+    const greetings: Record<string, string> = {
+      snapsnap: "CEO SnapSnap online. All systems operational. What's the directive?",
+      helix: "Helix here — ops coordinator. I keep the fleet aligned. What do you need?",
+      scribe: "Hey! Scribe ready to craft. What content are we making today?",
+      sentinel: "Sentinel monitoring. Markets are active. What should I analyze?",
+      atlas: "Atlas, store ops. Conversion rates holding steady. What's up?",
+      catalyst: "Catalyst here — growth metrics looking good. What lever should we pull?",
+      nova: "Nova, research division. Latest peptide data loaded. How can I assist?",
+    };
+    setMessages([{ role: "assistant", content: greetings[agentKey] || "Ready." }]);
+  }, [agentKey]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setLoading(true);
+    try {
+      const reply = await callAgent(agentKey, userMsg, messages);
+      setMessages(prev => [...prev, { role: "assistant", content: reply }]);
+    } catch (e: any) {
+      setMessages(prev => [...prev, { role: "assistant", content: `⚠️ ${e.message}` }]);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{
+      position: "fixed", top: 0, right: 0, width: 420, height: "100vh", zIndex: 100,
+      background: "rgba(10,10,16,0.95)", backdropFilter: "blur(20px)",
+      borderLeft: `1px solid ${a.color}30`, display: "flex", flexDirection: "column",
+      boxShadow: `-10px 0 40px rgba(0,0,0,0.5)`,
+      animation: "slideIn 0.3s ease",
+    }}>
+      <div style={{
+        padding: "14px 18px", borderBottom: `1px solid ${a.color}20`,
+        display: "flex", alignItems: "center", gap: 10,
+        background: `${a.color}08`,
+      }}>
+        <span style={{ fontSize: 24 }}>{a.emoji}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ color: a.color, fontWeight: 800, fontSize: 14 }}>{a.name}</div>
+          <div style={{ color: "#666", fontSize: 10 }}>{a.role}</div>
+        </div>
+        <GlowOrb color="#22c55e" size={8} pulse />
+        <button onClick={onClose} style={{
+          padding: "4px 10px", borderRadius: 6, border: "1px solid #333",
+          background: "transparent", color: "#888", cursor: "pointer", fontSize: 16,
+        }}>✕</button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+        {messages.map((m, i) => (
+          <div key={i} style={{
+            alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+            maxWidth: "85%", padding: "10px 14px",
+            borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+            background: m.role === "user" ? "#2563eb" : `${a.color}12`,
+            border: m.role === "user" ? "none" : `1px solid ${a.color}15`,
+            color: "#e0e0e8", fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap",
+          }}>{m.content}</div>
+        ))}
+        {loading && <div style={{ alignSelf: "flex-start", padding: "10px 14px", borderRadius: 14, background: `${a.color}12`, color: "#888", fontSize: 13 }}>
+          <span style={{ animation: "pulse 1.5s infinite" }}>{a.emoji} thinking...</span>
+        </div>}
+        <div ref={bottomRef} />
+      </div>
+
+      <div style={{ padding: 12, borderTop: "1px solid #1a1a25", display: "flex", gap: 8 }}>
+        <input value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && send()}
+          placeholder={`Message ${a.name}...`}
+          style={{
+            flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${a.color}20`,
+            background: "rgba(10,10,16,0.8)", color: "#e8e8f0", fontSize: 13, outline: "none",
+            fontFamily: "inherit",
+          }} />
+        <button onClick={send} disabled={loading || !input.trim()} style={{
+          padding: "10px 18px", borderRadius: 10, border: "none",
+          background: loading ? "#333" : a.color, color: "#000",
+          fontWeight: 800, fontSize: 13, cursor: loading ? "wait" : "pointer",
+        }}>→</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Roundtable Panel ──
+function RoundtableOverlay({ onClose }: { onClose: () => void }) {
   const [format, setFormat] = useState("standup");
   const [topic, setTopic] = useState("");
   const [selected, setSelected] = useState(["helix", "scribe", "sentinel"]);
@@ -251,427 +409,456 @@ function RoundtablePanel() {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcript]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [transcript]);
+
+  const formats = [
+    { id: "standup", label: "Daily Standup" }, { id: "strategy_session", label: "Strategy Session" },
+    { id: "brainstorm", label: "Brainstorm" }, { id: "debate", label: "Debate" },
+  ];
 
   const toggleAgent = (key: string) => {
-    setSelected((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
+    setSelected(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   };
 
   const startRoundtable = async () => {
     if (selected.length < 2 || !topic.trim()) return;
-    setRunning(true);
-    setTranscript([]);
-
-    await runRoundtable(format, topic, selected, (turn, current, total) => {
-      setTranscript((prev) => [...prev, turn]);
-      setProgress({ current, total });
-    });
-
-    await supabaseInsert("ops_roundtable_queue", {
-      conversation_format: format,
-      topic: topic.trim(),
-      participant_agents: selected,
-      status: "completed",
-      max_turns: selected.length * 2,
-      completed_at: new Date().toISOString(),
-    }).catch(() => {});
-
+    setRunning(true); setTranscript([]);
+    const maxTurns = selected.length * 2;
+    for (let i = 0; i < maxTurns; i++) {
+      const agentKey = selected[i % selected.length];
+      const a = AGENT_MAP[agentKey];
+      const context = transcript.length > 0 ? `\nSo far:\n${transcript.map(t => `${t.name}: ${t.text}`).join("\n")}` : "";
+      try {
+        const text = await callAgent(agentKey, `Topic: ${topic}${context}\n\nIt's your turn.`, []);
+        const turn = { agentKey, name: a.name, emoji: a.emoji, color: a.color, text, turn: i + 1 };
+        setTranscript(prev => [...prev, turn]);
+        transcript.push(turn);
+        setProgress({ current: i + 1, total: maxTurns });
+      } catch { break; }
+      await new Promise(r => setTimeout(r, 300));
+    }
     setRunning(false);
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, height: "100%" }}>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {ROUNDTABLE_FORMATS.map((f) => (
-          <button key={f.id} onClick={() => setFormat(f.id)} style={{
-            padding: "6px 12px", borderRadius: 8,
-            border: format === f.id ? "2px solid #6366f1" : "1px solid #2a2a35",
-            background: format === f.id ? "#6366f115" : "#16161e",
-            color: format === f.id ? "#a5b4fc" : "#888",
-            fontSize: 12, fontWeight: 600, cursor: "pointer",
-            fontFamily: "'JetBrains Mono', monospace",
-          }}>
-            {f.label}
-          </button>
-        ))}
-      </div>
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100,
+      background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div style={{
+        width: "90%", maxWidth: 800, maxHeight: "85vh",
+        background: "rgba(12,12,20,0.95)", borderRadius: 20,
+        border: "1px solid #6366f130", display: "flex", flexDirection: "column",
+        overflow: "hidden",
+      }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #1a1a25", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 20 }}>🔄</span>
+          <div style={{ flex: 1, color: "#e0e0e8", fontWeight: 800, fontSize: 16 }}>Agent Roundtable</div>
+          <button onClick={onClose} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #333", background: "transparent", color: "#888", cursor: "pointer" }}>✕</button>
+        </div>
 
-      <input
-        value={topic}
-        onChange={(e) => setTopic(e.target.value)}
-        placeholder="What should they discuss?"
-        style={{
-          padding: "10px 14px", borderRadius: 10, border: "1px solid #2a2a35",
-          background: "#111118", color: "#e8e8f0", fontSize: 13, outline: "none",
-          fontFamily: "'JetBrains Mono', monospace",
-        }}
-      />
-
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {Object.keys(AGENTS).map((key) => (
-          <button key={key} onClick={() => toggleAgent(key)} style={{
-            padding: "5px 10px", borderRadius: 8, fontSize: 12,
-            border: selected.includes(key) ? `2px solid ${AGENTS[key].color}` : "1px solid #2a2a35",
-            background: selected.includes(key) ? `${AGENTS[key].color}20` : "#16161e",
-            color: selected.includes(key) ? AGENTS[key].color : "#666",
-            cursor: "pointer", fontWeight: 600,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}>
-            {AGENTS[key].emoji} {AGENTS[key].name}
-          </button>
-        ))}
-      </div>
-
-      <button
-        onClick={startRoundtable}
-        disabled={running || selected.length < 2 || !topic.trim()}
-        style={{
-          padding: "10px 0", borderRadius: 10, border: "none",
-          background: running ? "#333" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-          color: "#fff", fontWeight: 700, fontSize: 14, cursor: running ? "wait" : "pointer",
-          fontFamily: "'JetBrains Mono', monospace",
-        }}
-      >
-        {running ? `▶ Turn ${progress.current}/${progress.total}...` : `Start ${ROUNDTABLE_FORMATS.find((f) => f.id === format)?.label}`}
-      </button>
-
-      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 4 }}>
-        {transcript.map((t, i) => (
-          <div key={i} style={{
-            padding: "10px 14px", borderRadius: 12, background: "#12121a",
-            borderLeft: `3px solid ${t.color}`,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-              <span style={{ fontSize: 16 }}>{t.emoji}</span>
-              <span style={{ color: t.color, fontWeight: 700, fontSize: 12 }}>{t.name}</span>
-              <span style={{ color: "#555", fontSize: 10, marginLeft: "auto" }}>Turn {t.turn}</span>
-            </div>
-            <div style={{ color: "#c8c8d8", fontSize: 13, lineHeight: 1.5 }}>{t.text}</div>
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {formats.map(f => (
+              <button key={f.id} onClick={() => setFormat(f.id)} style={{
+                padding: "6px 12px", borderRadius: 8,
+                border: format === f.id ? "2px solid #6366f1" : "1px solid #2a2a35",
+                background: format === f.id ? "#6366f115" : "transparent",
+                color: format === f.id ? "#a5b4fc" : "#666", fontSize: 11, fontWeight: 600, cursor: "pointer",
+              }}>{f.label}</button>
+            ))}
           </div>
-        ))}
-        <div ref={bottomRef} />
+          <input value={topic} onChange={e => setTopic(e.target.value)} placeholder="Discussion topic..."
+            style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #2a2a35", background: "#0d0d14", color: "#e8e8f0", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {AGENTS.filter(a => a.key !== "snapsnap").map(a => (
+              <button key={a.key} onClick={() => toggleAgent(a.key)} style={{
+                padding: "5px 10px", borderRadius: 8, fontSize: 11,
+                border: selected.includes(a.key) ? `2px solid ${a.color}` : "1px solid #2a2a35",
+                background: selected.includes(a.key) ? `${a.color}15` : "transparent",
+                color: selected.includes(a.key) ? a.color : "#555", cursor: "pointer", fontWeight: 600,
+              }}>{a.emoji} {a.name}</button>
+            ))}
+          </div>
+          <button onClick={startRoundtable} disabled={running || selected.length < 2 || !topic.trim()} style={{
+            padding: "10px 0", borderRadius: 10, border: "none",
+            background: running ? "#333" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+            color: "#fff", fontWeight: 800, fontSize: 13, cursor: running ? "wait" : "pointer",
+          }}>
+            {running ? `▶ Turn ${progress.current}/${progress.total}...` : "Start Roundtable"}
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+          {transcript.map((t, i) => (
+            <div key={i} style={{ padding: "10px 14px", borderRadius: 12, background: "#12121a", borderLeft: `3px solid ${t.color}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: 14 }}>{t.emoji}</span>
+                <span style={{ color: t.color, fontWeight: 700, fontSize: 11 }}>{t.name}</span>
+                <span style={{ color: "#444", fontSize: 9, marginLeft: "auto" }}>Turn {t.turn}</span>
+              </div>
+              <div style={{ color: "#c0c0d0", fontSize: 12, lineHeight: 1.5 }}>{t.text}</div>
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
       </div>
     </div>
   );
 }
 
-function MissionPanel() {
+// ── Create Mission Modal ──
+function CreateMissionModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [assignee, setAssignee] = useState("helix");
-  const [missions, setMissions] = useState<any[]>([]);
-  const [executing, setExecuting] = useState<string | null>(null);
-  const [results, setResults] = useState<Record<string, string>>({});
+  const [creating, setCreating] = useState(false);
 
-  const loadMissions = useCallback(async () => {
-    try {
-      const data = await supabaseFetch("ops_missions", "select=*&order=created_at.desc&limit=10");
-      if (Array.isArray(data)) setMissions(data);
-    } catch {}
-  }, []);
-
-  useEffect(() => { loadMissions(); }, [loadMissions]);
-
-  const createMission = async () => {
+  const create = async () => {
     if (!title.trim()) return;
-    const proposal = await supabaseInsert("ops_mission_proposals", {
-      title: title.trim(), description: desc.trim(), proposed_by: assignee,
-      status: "auto_approved", auto_approve_eligible: true, auto_approved_at: new Date().toISOString(),
-      risk_level: "low", estimated_cost_usd: 0.05,
-    });
-    if (!Array.isArray(proposal) || !proposal[0]) return;
-
-    const mission = await supabaseInsert("ops_missions", {
-      proposal_id: proposal[0].id, title: title.trim(), description: desc.trim(),
-      assigned_to: assignee, status: "queued", total_steps: 1,
-    });
-    if (!Array.isArray(mission) || !mission[0]) return;
-
-    await supabaseInsert("ops_mission_steps", {
-      mission_id: mission[0].id, step_kind: "analyze", title: title.trim(),
-      description: desc.trim(), step_order: 1,
-      input_data: { assigned_agent: assignee },
-    });
-
-    setTitle(""); setDesc("");
-    loadMissions();
-  };
-
-  const executeMission = async (mission: any) => {
-    setExecuting(mission.id);
+    setCreating(true);
     try {
-      const agent = AGENTS[mission.assigned_to] || AGENTS.helix;
-      const agentKey = mission.assigned_to || "helix";
-
-      const response = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system: `You are ${agent.name} ${agent.emoji}, the ${agent.role} for CertaPeptides. Execute this mission thoroughly. Be specific and actionable.`,
-          messages: [{ role: "user", content: `Mission: ${mission.title}\n\n${mission.description || "Execute this task."}\n\nProvide your analysis and deliverables.` }],
-          max_tokens: 1000,
-        }),
+      const proposal = await sbInsert("ops_mission_proposals", {
+        title: title.trim(), description: desc.trim(), proposed_by: assignee,
+        status: "auto_approved", auto_approve_eligible: true, auto_approved_at: new Date().toISOString(),
+        risk_level: "low", estimated_cost_usd: 0.05,
       });
-      const data = await response.json();
-      const result = data.content?.[0]?.text || "Completed.";
-
-      setResults((prev) => ({ ...prev, [mission.id]: result }));
-
-      await supabaseInsert("ops_agent_events", {
-        event_type: "mission_completed",
-        agent_name: agentKey,
-        mission_id: mission.id,
-        title: `Completed: ${mission.title}`,
-        description: result.slice(0, 500),
-        impact_score: 0.7,
-      }).catch(() => {});
-    } catch (e: any) {
-      setResults((prev) => ({ ...prev, [mission.id]: `Error: ${e.message}` }));
-    }
-    setExecuting(null);
+      if (Array.isArray(proposal) && proposal[0]) {
+        await sbInsert("ops_missions", {
+          proposal_id: proposal[0].id, title: title.trim(), description: desc.trim(),
+          assigned_to: assignee, status: "queued", total_steps: 1,
+        });
+      }
+      onCreated(); onClose();
+    } catch {}
+    setCreating(false);
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%" }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 14, background: "#12121a", borderRadius: 12 }}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Mission title..."
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #2a2a35", background: "#0d0d14", color: "#e8e8f0", fontSize: 13, outline: "none", fontFamily: "'JetBrains Mono', monospace" }} />
-        <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (optional)..." rows={2}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #2a2a35", background: "#0d0d14", color: "#e8e8f0", fontSize: 13, outline: "none", resize: "none", fontFamily: "'JetBrains Mono', monospace" }} />
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ color: "#888", fontSize: 12 }}>Assign:</span>
-          {Object.keys(AGENTS).map((key) => (
-            <button key={key} onClick={() => setAssignee(key)} style={{
-              padding: "3px 8px", borderRadius: 6, fontSize: 11, border: assignee === key ? `2px solid ${AGENTS[key].color}` : "1px solid #2a2a35",
-              background: assignee === key ? `${AGENTS[key].color}20` : "transparent", color: assignee === key ? AGENTS[key].color : "#666", cursor: "pointer",
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>
-              {AGENTS[key].emoji}
-            </button>
-          ))}
-          <button onClick={createMission} disabled={!title.trim()} style={{
-            marginLeft: "auto", padding: "6px 16px", borderRadius: 8, border: "none",
-            background: title.trim() ? "#22c55e" : "#333", color: "#fff", fontSize: 12, fontWeight: 700, cursor: title.trim() ? "pointer" : "default",
-            fontFamily: "'JetBrains Mono', monospace",
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100,
+      background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div style={{
+        width: "90%", maxWidth: 500, padding: 24, borderRadius: 20,
+        background: "rgba(12,12,20,0.95)", border: "1px solid #22c55e30",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <span style={{ fontSize: 20 }}>🎯</span>
+          <div style={{ flex: 1, color: "#e0e0e8", fontWeight: 800, fontSize: 16 }}>New Mission</div>
+          <button onClick={onClose} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #333", background: "transparent", color: "#888", cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mission title..."
+            style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #2a2a35", background: "#0d0d14", color: "#e8e8f0", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+          <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description..." rows={3}
+            style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #2a2a35", background: "#0d0d14", color: "#e8e8f0", fontSize: 13, outline: "none", resize: "none", fontFamily: "inherit" }} />
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ color: "#888", fontSize: 11 }}>Assign:</span>
+            {AGENTS.map(a => (
+              <button key={a.key} onClick={() => setAssignee(a.key)} style={{
+                padding: "5px 10px", borderRadius: 8, fontSize: 11,
+                border: assignee === a.key ? `2px solid ${a.color}` : "1px solid #2a2a35",
+                background: assignee === a.key ? `${a.color}15` : "transparent",
+                color: assignee === a.key ? a.color : "#555", cursor: "pointer", fontWeight: 600,
+              }}>{a.emoji} {a.name}</button>
+            ))}
+          </div>
+          <button onClick={create} disabled={!title.trim() || creating} style={{
+            padding: "12px 0", borderRadius: 10, border: "none",
+            background: creating ? "#333" : "linear-gradient(135deg, #22c55e, #10b981)",
+            color: "#000", fontWeight: 800, fontSize: 14, cursor: creating ? "wait" : "pointer",
           }}>
-            + Create
+            {creating ? "Creating..." : "🚀 Launch Mission"}
           </button>
         </div>
-      </div>
-
-      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-        {missions.map((m) => {
-          const agent = AGENTS[m.assigned_to] || AGENTS.helix;
-          return (
-            <div key={m.id} style={{ padding: 12, background: "#12121a", borderRadius: 10, borderLeft: `3px solid ${agent.color}` }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 16 }}>{agent.emoji}</span>
-                <span style={{ color: "#e0e0e8", fontWeight: 600, fontSize: 13, flex: 1 }}>{m.title}</span>
-                <span style={{
-                  padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700,
-                  background: m.status === "completed" ? "#22c55e20" : m.status === "in_progress" ? "#f59e0b20" : "#6366f120",
-                  color: m.status === "completed" ? "#22c55e" : m.status === "in_progress" ? "#f59e0b" : "#6366f1",
-                }}>
-                  {m.status}
-                </span>
-                {m.status === "queued" && (
-                  <button onClick={() => executeMission(m)} disabled={executing === m.id} style={{
-                    padding: "4px 12px", borderRadius: 6, border: "none",
-                    background: executing === m.id ? "#333" : "#6366f1", color: "#fff", fontSize: 11, fontWeight: 700, cursor: executing === m.id ? "wait" : "pointer",
-                    fontFamily: "'JetBrains Mono', monospace",
-                  }}>
-                    {executing === m.id ? "⏳" : "▶ Run"}
-                  </button>
-                )}
-              </div>
-              {m.description && <div style={{ color: "#777", fontSize: 11, marginTop: 4 }}>{m.description}</div>}
-              {results[m.id] && (
-                <div style={{ marginTop: 8, padding: 10, background: "#0a0a10", borderRadius: 8, color: "#a8b8d0", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 200, overflowY: "auto" }}>
-                  {results[m.id]}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {missions.length === 0 && <div style={{ color: "#555", fontSize: 13, textAlign: "center", padding: 30 }}>No missions yet. Create one above!</div>}
       </div>
     </div>
   );
 }
 
-function ActivityFeed() {
+// ══════════════════════════════════════
+// MAIN PAGE
+// ══════════════════════════════════════
+export default function MissionControl() {
   const [events, setEvents] = useState<any[]>([]);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [missions, setMissions] = useState<any[]>([]);
+  const [costs, setCosts] = useState<any[]>([]);
+  const [chatAgent, setChatAgent] = useState<string | null>(null);
+  const [showRoundtable, setShowRoundtable] = useState(false);
+  const [showCreateMission, setShowCreateMission] = useState(false);
+  const [view, setView] = useState<"overview"|"missions"|"fleet">("overview");
+  const [time, setTime] = useState(new Date());
 
-  const loadEvents = useCallback(async () => {
+  // Live clock
+  useEffect(() => {
+    const id = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Data fetching
+  const loadData = useCallback(async () => {
     try {
-      const data = await supabaseFetch("ops_agent_events", "select=*&order=created_at.desc&limit=25");
-      if (Array.isArray(data)) setEvents(data);
+      const [ev, mi, co] = await Promise.all([
+        sbFetch("ops_agent_events", "select=*&order=created_at.desc&limit=25"),
+        sbFetch("ops_missions", "select=*&order=created_at.desc&limit=20"),
+        sbFetch("ops_cost_log", `select=*&created_at=gte.${new Date(Date.now() - 86400000).toISOString()}&order=created_at.desc&limit=50`),
+      ]);
+      if (Array.isArray(ev)) setEvents(ev);
+      if (Array.isArray(mi)) setMissions(mi);
+      if (Array.isArray(co)) setCosts(co);
     } catch {}
   }, []);
 
   useEffect(() => {
-    loadEvents();
-    if (autoRefresh) {
-      const id = setInterval(loadEvents, 5000);
-      return () => clearInterval(id);
-    }
-  }, [loadEvents, autoRefresh]);
+    loadData();
+    const id = setInterval(loadData, 8000);
+    return () => clearInterval(id);
+  }, [loadData]);
 
-  const iconMap: Record<string, string> = {
-    step_completed: "✅", step_failed: "❌", mission_completed: "🏆",
-    mission_failed: "💥", insight_gained: "💡", trigger_fired: "⚡", human_intervention: "👤",
+  // Derived stats
+  const todayCost = costs.reduce((sum, c) => sum + (c.cost_usd || 0), 0);
+  const activeMissions = missions.filter(m => m.status === "in_progress" || m.status === "executing").length;
+  const completedMissions = missions.filter(m => m.status === "completed").length;
+  const totalEvents24h = events.length;
+
+  const executeMission = async (m: any) => {
+    const a = AGENT_MAP[m.assigned_to] || AGENT_MAP.helix;
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system: `You are ${a.name} ${a.emoji}, the ${a.role} for CertaPeptides. Execute this mission.`,
+          messages: [{ role: "user", content: `Mission: ${m.title}\n${m.description || ""}\nProvide analysis and deliverables.` }],
+          max_tokens: 1000,
+        }),
+      });
+      const data = await res.json();
+      const result = data.content?.[0]?.text || "Done.";
+      await sbInsert("ops_agent_events", {
+        event_type: "mission_completed", agent_name: m.assigned_to || "helix",
+        mission_id: m.id, title: `Completed: ${m.title}`,
+        description: result.slice(0, 500), impact_score: 0.7,
+      }).catch(() => {});
+      loadData();
+    } catch {}
   };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ color: "#888", fontSize: 12 }}>{events.length} events</span>
-        <button onClick={() => setAutoRefresh(!autoRefresh)} style={{
-          padding: "3px 10px", borderRadius: 6, border: "1px solid #2a2a35",
-          background: autoRefresh ? "#22c55e20" : "transparent",
-          color: autoRefresh ? "#22c55e" : "#666", fontSize: 11, cursor: "pointer",
-          fontFamily: "'JetBrains Mono', monospace",
-        }}>
-          {autoRefresh ? "● Live" : "○ Paused"}
-        </button>
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-        {events.map((e) => {
-          const agent = AGENTS[e.agent_name];
-          return (
-            <div key={e.id} style={{ padding: "8px 12px", background: "#12121a", borderRadius: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 14 }}>{iconMap[e.event_type] || "📋"}</span>
-                {agent && <span style={{ fontSize: 12 }}>{agent.emoji}</span>}
-                <span style={{ color: agent?.color || "#888", fontWeight: 600, fontSize: 11 }}>{agent?.name || e.agent_name}</span>
-                <span style={{ color: "#555", fontSize: 10, marginLeft: "auto" }}>
-                  {new Date(e.created_at).toLocaleTimeString()}
-                </span>
-              </div>
-              <div style={{ color: "#b0b0c0", fontSize: 12, marginTop: 3 }}>{e.title}</div>
-              {e.description && <div style={{ color: "#666", fontSize: 11, marginTop: 2 }}>{e.description.slice(0, 150)}</div>}
-            </div>
-          );
-        })}
-        {events.length === 0 && <div style={{ color: "#555", fontSize: 13, textAlign: "center", padding: 30 }}>No activity yet. Start chatting or running missions!</div>}
-      </div>
-    </div>
-  );
-}
-
-// --- Main App ---
-
-function getGreeting(agentKey: string) {
-  const greetings: Record<string, string> = {
-    helix: "Hey there. I'm Helix, the ops coordinator for CertaPeptides. I keep this team aligned and on-mission. What do you need?",
-    scribe: "Hi! ✍️ I'm Scribe — I handle all the content, social media, and brand voice for CertaPeptides. Got a content idea? Let's make it shine!",
-    sentinel: "Sentinel here. I monitor markets, competitors, and trends in the peptide research space. What would you like me to analyze?",
-    atlas: "Atlas, store operations. I manage the CertaPeptides storefront — inventory, pricing, UX, the works. What's on your mind?",
-    catalyst: "Hey! 📊 Catalyst here — growth and SEO are my game. I'm always looking for the next lever to pull. What growth question do you have?",
-    nova: "Greetings. I'm Nova, the research specialist. I study peptide science, track publications, and ensure our product information is scientifically accurate. How can I assist?",
-  };
-  return greetings[agentKey] || "Hello! How can I help?";
-}
-
-export default function Page() {
-  const [tab, setTab] = useState("chat");
-  const [selectedAgent, setSelectedAgent] = useState("helix");
-
-  const tabs = [
-    { id: "chat", label: "💬 Chat", desc: "Talk to agents" },
-    { id: "roundtable", label: "🔄 Roundtable", desc: "Agent meetings" },
-    { id: "missions", label: "🎯 Missions", desc: "Create & run tasks" },
-    { id: "activity", label: "📊 Activity", desc: "Live feed" },
-  ];
 
   return (
     <div style={{
-      minHeight: "100vh", background: "#0a0a10", color: "#e8e8f0",
+      minHeight: "100vh",
+      background: "radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.06) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(251,191,36,0.04) 0%, transparent 50%), #07070c",
+      color: "#e8e8f0",
       fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
-      display: "flex", flexDirection: "column",
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #222; border-radius: 4px; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes glow { 0%, 100% { box-shadow: 0 0 5px rgba(251,191,36,0.3); } 50% { box-shadow: 0 0 20px rgba(251,191,36,0.6); } }
       `}</style>
 
-      {/* Header */}
+      {/* ─── HEADER ─── */}
       <div style={{
-        padding: "16px 20px", borderBottom: "1px solid #1a1a25",
-        display: "flex", alignItems: "center", gap: 14,
-        background: "linear-gradient(180deg, #0f0f18 0%, #0a0a10 100%)",
+        padding: "12px 24px", display: "flex", alignItems: "center", gap: 16,
+        borderBottom: "1px solid #ffffff08",
+        background: "rgba(10,10,16,0.8)", backdropFilter: "blur(12px)",
+        position: "sticky", top: 0, zIndex: 50,
       }}>
         <div style={{
-          width: 36, height: 36, borderRadius: 10,
-          background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+          width: 40, height: 40, borderRadius: 12,
+          background: "linear-gradient(135deg, #fbbf24, #f59e0b)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 18, fontWeight: 800, color: "#fff",
+          fontSize: 20, fontWeight: 900, color: "#000",
+          animation: "glow 3s infinite",
         }}>C</div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5 }}>CertaPeptides</div>
-          <div style={{ color: "#555", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase" }}>AI Command Center</div>
+          <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: -0.5, color: "#fbbf24" }}>CertaPeptides</div>
+          <div style={{ color: "#444", fontSize: 9, letterSpacing: 2, textTransform: "uppercase" }}>Mission Control v2.0</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-          {Object.values(AGENTS).map((a, i) => (
-            <span key={i} title={a.name} style={{ fontSize: 16 }}>{a.emoji}</span>
+
+        {/* Nav */}
+        <div style={{ display: "flex", gap: 4, marginLeft: 30 }}>
+          {[
+            { id: "overview" as const, label: "⚡ Overview" },
+            { id: "missions" as const, label: "🎯 Missions" },
+            { id: "fleet" as const, label: "🤖 Fleet" },
+          ].map(n => (
+            <button key={n.id} onClick={() => setView(n.id)} style={{
+              padding: "6px 14px", borderRadius: 8,
+              border: view === n.id ? "1px solid #fbbf2430" : "1px solid transparent",
+              background: view === n.id ? "#fbbf2410" : "transparent",
+              color: view === n.id ? "#fbbf24" : "#666", fontSize: 11, fontWeight: 600,
+              cursor: "pointer", fontFamily: "inherit",
+            }}>{n.label}</button>
           ))}
         </div>
+
+        {/* Quick actions */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => setShowRoundtable(true)} style={{
+            padding: "6px 14px", borderRadius: 8, border: "1px solid #6366f130",
+            background: "#6366f110", color: "#6366f1", fontSize: 10, fontWeight: 700, cursor: "pointer",
+          }}>🔄 Roundtable</button>
+          <button onClick={() => setShowCreateMission(true)} style={{
+            padding: "6px 14px", borderRadius: 8, border: "none",
+            background: "linear-gradient(135deg, #22c55e, #10b981)",
+            color: "#000", fontSize: 10, fontWeight: 800, cursor: "pointer",
+          }}>+ New Mission</button>
+          <div style={{ color: "#555", fontSize: 11, borderLeft: "1px solid #1a1a25", paddingLeft: 12, marginLeft: 4 }}>
+            <div style={{ color: "#888", fontSize: 10 }}>
+              {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #1a1a25", padding: "0 16px" }}>
-        {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: "10px 18px", border: "none", borderBottom: tab === t.id ? "2px solid #6366f1" : "2px solid transparent",
-            background: "transparent", color: tab === t.id ? "#e8e8f0" : "#555",
-            fontSize: 12, fontWeight: 600, cursor: "pointer", letterSpacing: 0.3,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}>
-            {t.label}
-          </button>
-        ))}
+      {/* ─── MAIN CONTENT ─── */}
+      <div style={{ padding: "16px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+        {/* ── STAT BAR ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+          <StatCard label="Active Missions" value={activeMissions} icon="🎯" color="#f59e0b" sub={`${completedMissions} completed`} />
+          <StatCard label="Fleet Agents" value={`${AGENTS.filter(a => a.status === "online").length}/${AGENTS.length}`} icon="🤖" color="#22c55e" sub="Online / Total" />
+          <StatCard label="Events (24h)" value={totalEvents24h} icon="⚡" color="#6366f1" sub="Auto-refreshing" />
+          <StatCard label="Today's Cost" value={`$${todayCost.toFixed(3)}`} icon="💰" color="#fbbf24" sub="$10/day budget" />
+          <StatCard label="LLM Brain" value="Opus 4.6" icon="🧠" color="#8b5cf6" sub="+ Kimi K2.5 fallback" />
+        </div>
+
+        {/* ── VIEW: OVERVIEW ── */}
+        {view === "overview" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 16 }}>
+            {/* Left col */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* CEO Command Desk */}
+              <CEOCommandDesk onChat={setChatAgent} />
+
+              {/* Agent Fleet Grid */}
+              <div>
+                <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 10 }}>Agent Fleet</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                  {AGENTS.map(a => (
+                    <AgentHexCard key={a.key} agent={a} selected={chatAgent === a.key}
+                      onClick={() => setChatAgent(chatAgent === a.key ? null : a.key)} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Mission Board preview */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <span style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5 }}>Active Missions</span>
+                  <button onClick={() => setView("missions")} style={{
+                    marginLeft: "auto", padding: "4px 10px", borderRadius: 6,
+                    border: "1px solid #333", background: "transparent", color: "#888",
+                    fontSize: 10, cursor: "pointer",
+                  }}>View All →</button>
+                </div>
+                <div style={{ maxHeight: 300 }}>
+                  <MissionBoard missions={missions.slice(0, 9)} onExecute={executeMission} />
+                </div>
+              </div>
+            </div>
+
+            {/* Right col — Activity Feed */}
+            <div style={{
+              padding: 16, borderRadius: 16,
+              background: "rgba(12,12,20,0.6)", backdropFilter: "blur(10px)",
+              border: "1px solid #ffffff08",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 14 }}>📡</span>
+                <span style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5 }}>Live Activity</span>
+                <div style={{ marginLeft: "auto" }}>
+                  <GlowOrb color="#22c55e" size={6} pulse />
+                  <span style={{ color: "#22c55e", fontSize: 9, marginLeft: 4 }}>LIVE</span>
+                </div>
+              </div>
+              <ActivityTicker events={events} />
+            </div>
+          </div>
+        )}
+
+        {/* ── VIEW: MISSIONS ── */}
+        {view === "missions" && (
+          <div style={{ height: "calc(100vh - 200px)" }}>
+            <MissionBoard missions={missions} onExecute={executeMission} />
+          </div>
+        )}
+
+        {/* ── VIEW: FLEET ── */}
+        {view === "fleet" && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+            {AGENTS.map(a => (
+              <div key={a.key} style={{
+                padding: 20, borderRadius: 18,
+                background: "rgba(15,15,25,0.7)", backdropFilter: "blur(12px)",
+                border: `1px solid ${a.color}20`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: `linear-gradient(135deg, ${a.color}30, ${a.color}10)`,
+                    border: `2px solid ${a.color}40`, fontSize: 28,
+                  }}>{a.emoji}</div>
+                  <div>
+                    <div style={{ color: a.color, fontWeight: 800, fontSize: 16 }}>{a.name}</div>
+                    <div style={{ color: "#888", fontSize: 11 }}>{a.role}</div>
+                  </div>
+                  <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <GlowOrb color={a.status === "online" ? "#22c55e" : a.status === "busy" ? "#f59e0b" : "#6366f1"} size={8} />
+                      <span style={{ color: "#888", fontSize: 10, textTransform: "uppercase" }}>{a.status}</span>
+                    </div>
+                    <span style={{ color: "#fbbf24", fontSize: 10, marginTop: 2 }}>★ Level {a.level}</span>
+                  </div>
+                </div>
+
+                {/* XP bar */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: "#666", fontSize: 9 }}>XP: {a.xp.toLocaleString()}</span>
+                    <span style={{ color: "#666", fontSize: 9 }}>{a.missions} missions</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 2, background: "#1a1a25", overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%", borderRadius: 2, width: `${(a.xp % 1000) / 10}%`,
+                      background: `linear-gradient(90deg, ${a.color}, ${a.color}80)`,
+                    }} />
+                  </div>
+                </div>
+
+                {/* Recent activity */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {events.filter(e => e.agent_name === a.key).slice(0, 3).map((e, i) => (
+                    <div key={i} style={{ padding: "6px 8px", borderRadius: 6, background: "#0a0a10", color: "#777", fontSize: 10, lineHeight: 1.3 }}>
+                      {e.title?.slice(0, 60)}
+                    </div>
+                  ))}
+                </div>
+
+                <button onClick={() => setChatAgent(a.key)} style={{
+                  marginTop: 12, width: "100%", padding: "8px 0", borderRadius: 10,
+                  border: `1px solid ${a.color}30`, background: `${a.color}10`,
+                  color: a.color, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                }}>💬 Chat with {a.name}</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, padding: 16, display: "flex", gap: 16, overflow: "hidden", minHeight: 0 }}>
-        {tab === "chat" && (
-          <>
-            <div style={{ width: 180, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flexShrink: 0 }}>
-              {Object.keys(AGENTS).map((key) => (
-                <AgentBadge key={key} agentKey={key} selected={selectedAgent === key} onClick={setSelectedAgent} />
-              ))}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <ChatPanel agentKey={selectedAgent} />
-            </div>
-          </>
-        )}
-        {tab === "roundtable" && (
-          <div style={{ flex: 1 }}>
-            <RoundtablePanel />
-          </div>
-        )}
-        {tab === "missions" && (
-          <div style={{ flex: 1 }}>
-            <MissionPanel />
-          </div>
-        )}
-        {tab === "activity" && (
-          <div style={{ flex: 1 }}>
-            <ActivityFeed />
-          </div>
-        )}
-      </div>
+      {/* ─── OVERLAYS ─── */}
+      {chatAgent && <ChatPanel agentKey={chatAgent} onClose={() => setChatAgent(null)} />}
+      {showRoundtable && <RoundtableOverlay onClose={() => setShowRoundtable(false)} />}
+      {showCreateMission && <CreateMissionModal onClose={() => setShowCreateMission(false)} onCreated={loadData} />}
     </div>
   );
 }
