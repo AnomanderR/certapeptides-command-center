@@ -843,7 +843,7 @@ export default function MissionControl() {
   const [selectedSceneAgent, setSelectedSceneAgent] = useState<string | null>(null);
   const [showRoundtable, setShowRoundtable] = useState(false);
   const [showCreateMission, setShowCreateMission] = useState(false);
-  const [view, setView] = useState<"overview"|"missions"|"fleet"|"infra">("overview");
+  const [view, setView] = useState<"overview"|"missions"|"fleet"|"infra"|"dashboard">("overview");
   const [time, setTime] = useState(new Date());
 
   // Live clock
@@ -985,6 +985,7 @@ export default function MissionControl() {
             { id: "missions" as const, label: "🎯 Missions" },
             { id: "fleet" as const, label: "🤖 Fleet" },
             { id: "infra" as const, label: "🔧 Infra" },
+            { id: "dashboard" as const, label: "📊 Dashboard" },
           ].map(n => (
             <button key={n.id} onClick={() => setView(n.id)} style={{
               padding: "6px 14px", borderRadius: 8,
@@ -1207,6 +1208,43 @@ export default function MissionControl() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── VIEW: DASHBOARD (LobsterBoard) ── */}
+        {view === "dashboard" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, height: "calc(100vh - 140px)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5 }}>
+                📊 LobsterBoard — Live Operations Dashboard
+              </div>
+              <a
+                href="http://72.60.181.81:3333"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  padding: "4px 12px", borderRadius: 6, border: "1px solid #333",
+                  background: "transparent", color: "#fbbf24", fontSize: 10,
+                  textDecoration: "none", cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                Open Full Screen ↗
+              </a>
+            </div>
+            <div style={{
+              flex: 1, borderRadius: 14, overflow: "hidden",
+              border: "1px solid #ffffff08", background: "rgba(15,15,25,0.8)",
+            }}>
+              <iframe
+                src="http://72.60.181.81:3333"
+                style={{
+                  width: "100%", height: "100%", border: "none",
+                  borderRadius: 14, background: "#0a0a10",
+                }}
+                title="LobsterBoard Dashboard"
+                allow="clipboard-read; clipboard-write"
+              />
             </div>
           </div>
         )}
